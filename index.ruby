@@ -1,85 +1,100 @@
-require 'json'
-# Book class
-class Book
-  attr_reader :title, :author, :isbn
+require 'logger'
 
-  def initialize(title, author, isbn)
-    @title = title
-    @author = author
-    @isbn = isbn
+class LoggerModule
+  def log_info(message)
+    Logger.new('app.log').info(message)
   end
 
-  def to_hash
-    { title: @title, author: @author, isbn: @isbn }
+  def log_warning(message)
+    Logger.new('app.log').warn(message)
+  end
+
+  def log_error(message)
+    Logger.new('app.log').error(message)
   end
 end
 
-# Inventory class
-class Inventory
-  def initialize(file_path)
-    @file_path = file_path
-    @books = load_books
-  end
+class User
+  attr_accessor :name, :balance
 
-  def load_books
-    if File.exist?(@file_path)
-      File.open(@file_path, 'r') do |file|
-        JSON.parse(file.read).map do |book_data|
-          Book.new(book_data['title'], book_data['author'], book_data['isbn'])
+  def initialize(name, balance)
+    @name = name
+    @balance = balance
+  end
+end
+
+class Transaction
+  attr_reader :user, :value
+
+  def initialize(user, value)
+    @user = user
+    @value = value
+  end
+end
+
+module Bank
+  def process_transactions(transactions, callback)
+    log_info("Processing Transactions #{transactions.map { |t| "#{t.user.name} transaction with value #{t.value}" }.join(', ')}...")
+    transactions.each do |transaction|
+      begin
+        if transaction.user.instance_of?(User)
+          if self.users.include?(transaction.user)
+            new_balance = transaction.user.balance + transaction.value
+            if new_balance < 0
+              raise "Not enough balance"
+            elsif new_balance == 0
+              log_warning("#{transaction.user.name} has 0 balance")
+            end
+            transaction.user.balance = new_balance
+            callback.call("success", transaction)
+          else
+            raise "#{transaction.user.name} not exist in the bank!!"
+          end
+        else
+          raise "Invalid user"
         end
+      rescue StandardError => e
+        log_error("User #{transaction.user.name} transaction with value #{transaction.value} failed with message #{e.message}")
+        callback.call("failure", transaction)
       end
-    else
-      []
-    end
-  end
-
-  def save_books
-    File.open(@file_path, 'w') do |file|
-      file.write(JSON.pretty_generate(@books.map(&:to_hash)))
-    end
-  end
-
-  def list_books
-    if @books.empty?
-      puts "Inventory is empty."
-    else
-      @books.each_with_index do |book, index|
-        puts "#{index + 1}. #{book.title} by #{book.author} (ISBN: #{book.isbn})"
-      end
-    end
-  end
-
-  def add_book(title, author, isbn)
-    new_book = Book.new(title, author, isbn)
-    @books << new_book
-    save_books
-    puts "Added: #{title} by #{author} (ISBN: #{isbn})"
-  end
-
-  def remove_book(isbn)
-    index = @books.find_index { |book| book.isbn == isbn }
-    if index
-      removed_book = @books.delete_at(index)
-      save_books
-      puts "Removed: #{removed_book.title} by #{removed_book.author}"
-    else
-      puts "Book with ISBN #{isbn} not found."
     end
   end
 end
 
-# Usage example:
-inventory = Inventory.new("books_inventory.json")
+class CBABank
+  include Bank
+  include LoggerModule
 
-# Add books
-inventory.add_book("The Great Gatsby", "F. Scott Fitzgerald", "9780743273565")
-inventory.add_book("To Kill a Mockingbird", "Harper Lee", "9780061120084")
+  attr_reader :users
 
-# List books
-inventory.list_books
+  def initialize(users)
+    @users = users
+  end
+end
 
-# Remove a book by ISBN
-inventory.remove_book("9780743273565")
+# Example usage
+users = [
+  User.new("Ali", 200),
+  User.new("Nour", 500),
+  User.new("Mona", 100)
+]
 
-# List books after removal
-inventory.list_books
+out_side_bank_users = [
+  User.new("Menna", 400),
+]
+
+transactions = [
+  Transaction.new(users[0], -20),
+  Transaction.new(users[0], -30),
+  Transaction.new(users[0], -50),
+  Transaction.new(users[0], -100),
+  Transaction.new(users[0], -100),
+  Transaction.new(out_side_bank_users[0], -100)
+]
+
+callback = Proc.new do |status, transaction|
+  puts "Call endpoint for #{status} of User #{transaction.user.name} transaction with value #{transaction.value} #{status == 'failure' ? "with reason #{transaction.user.name} not exist in the bank!!" : ''}"
+end
+
+cba_bank = CBABank.new(users)
+cba_bank.process_transactions(transactions, callback)
