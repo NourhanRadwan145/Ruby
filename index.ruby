@@ -76,7 +76,7 @@ end
 users = [
   User.new("Ali", 200),
   User.new("Nour", 500),
-  User.new("Mona", 100)
+  User.new("Monagem install rails", 100)
 ]
 
 out_side_bank_users = [
